@@ -1,0 +1,50 @@
+﻿name: MetaSolw Daily Social Automation
+
+on:
+  schedule:
+    - cron: "30 3 * * *"   # 9:00 AM India time
+  workflow_dispatch:
+
+jobs:
+  run-social:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install requirements
+        run: pip install -r requirements.txt
+
+      - name: Create config.json
+        run: |
+          cat > config.json <<EOF
+          {
+            "page_id": "${{ secrets.PAGE_ID }}",
+            "page_access_token": "${{ secrets.PAGE_ACCESS_TOKEN }}",
+            "ig_user_id": "${{ secrets.IG_USER_ID }}"
+          }
+          EOF
+
+      - name: Generate poster
+        run: python scripts/generate_poster.py
+
+      - name: Post to Facebook
+        run: python scripts/post_facebook.py
+
+      - name: Fix Facebook image URL
+        run: python scripts/fix_facebook_url.py
+
+      - name: Post to Instagram
+        run: python scripts/post_instagram.py
+
+      - name: Upload poster artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: metasolw-status-poster
+          path: output/status_today.png

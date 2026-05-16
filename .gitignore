@@ -1,0 +1,6 @@
+﻿.venv/
+logs/
+token_input.json
+config.json
+__pycache__/
+*.pyc
