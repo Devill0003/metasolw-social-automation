@@ -5,6 +5,9 @@ on:
     - cron: "30 3 * * *"   # 9:00 AM India time
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   run-social:
     runs-on: ubuntu-latest
@@ -42,6 +45,19 @@ jobs:
 
       - name: Post to Instagram
         run: python scripts/post_instagram.py
+
+      - name: Save poster to public folder
+        run: |
+          mkdir -p public
+          cp output/status_today.png public/status_today.png
+
+      - name: Commit public poster
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/status_today.png
+          git commit -m "Update public status poster" || echo "No changes to commit"
+          git push
 
       - name: Upload poster artifact
         uses: actions/upload-artifact@v4
