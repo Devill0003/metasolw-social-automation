@@ -1,0 +1,56 @@
+﻿name: Build MetaSolw WhatsApp Status Helper APK
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "status_helper_app/**"
+      - "build.gradle"
+      - "settings.gradle"
+      - "gradle.properties"
+      - ".github/workflows/build_whatsapp_helper.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Build APK
+        run: gradle :status_helper_app:assembleDebug
+
+      - name: Rename APK
+        run: |
+          mkdir -p release
+          cp status_helper_app/build/outputs/apk/debug/status_helper_app-debug.apk release/MetaSolw_Status_Helper.apk
+
+      - name: Publish Latest APK Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete whatsapp-helper-latest -y --cleanup-tag || true
+          gh release create whatsapp-helper-latest release/MetaSolw_Status_Helper.apk --title "MetaSolw WhatsApp Status Helper" --notes "Install this APK on your phone. It downloads the latest MetaSolw poster and opens WhatsApp Status sharing."
