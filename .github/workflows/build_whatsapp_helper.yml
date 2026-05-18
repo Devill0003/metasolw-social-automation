@@ -1,4 +1,4 @@
-﻿name: Build MetaSolw WhatsApp Status Helper APK
+name: Build MetaSolw WhatsApp Status Helper APK
 
 on:
   push:

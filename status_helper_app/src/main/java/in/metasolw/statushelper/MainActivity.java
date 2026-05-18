@@ -1,4 +1,4 @@
-﻿package in.metasolw.statushelper;
+package in.metasolw.statushelper;
 
 import android.app.Activity;
 import android.os.Bundle;
