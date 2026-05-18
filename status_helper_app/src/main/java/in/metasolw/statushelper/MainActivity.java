@@ -163,16 +163,16 @@ public class MainActivity extends Activity {
         try {
             grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-            Intent intent = new Intent(Intent.ACTION_SEND);
+            Intent intent = new Intent("com.whatsapp.intent.action.SEND_TO_STATUS");
             intent.setType("image/png");
             intent.setPackage(packageName);
             intent.putExtra(Intent.EXTRA_STREAM, uri);
 
             // Direct WhatsApp Status target
-            intent.putExtra("jid", "status@broadcast");
+            
 
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            
 
             startActivity(intent);
             return true;
