@@ -4,8 +4,13 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Build;
+import android.os.Environment;
 import android.content.Intent;
+import android.content.ContentValues;
 import android.net.Uri;
+import android.provider.MediaStore;
+import android.media.MediaScannerConnection;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -13,11 +18,11 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.graphics.Color;
 
-import androidx.core.content.FileProvider;
-
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.OutputStream;
 import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
@@ -26,7 +31,7 @@ public class MainActivity extends Activity {
             "https://raw.githubusercontent.com/Devill0003/metasolw-social-automation/main/public/status_today.png";
 
     private TextView statusText;
-    private Button shareButton;
+    private Button openButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,7 +41,7 @@ public class MainActivity extends Activity {
         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
             @Override
             public void run() {
-                downloadAndShare();
+                downloadSaveAndOpenWhatsApp();
             }
         }, 700);
     }
@@ -56,26 +61,26 @@ public class MainActivity extends Activity {
         title.setPadding(0, 0, 0, 16);
 
         statusText = new TextView(this);
-        statusText.setText("Latest poster download ho raha hai...");
+        statusText.setText("Poster download ho raha hai...");
         statusText.setTextColor(Color.rgb(230, 240, 255));
         statusText.setTextSize(16);
         statusText.setGravity(Gravity.CENTER);
         statusText.setPadding(0, 0, 0, 32);
 
-        shareButton = new Button(this);
-        shareButton.setText("Post WhatsApp Status Now");
-        shareButton.setTextSize(16);
-        shareButton.setAllCaps(false);
-        shareButton.setOnClickListener(new View.OnClickListener() {
+        openButton = new Button(this);
+        openButton.setText("Open WhatsApp Business");
+        openButton.setTextSize(16);
+        openButton.setAllCaps(false);
+        openButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                downloadAndShare();
+                downloadSaveAndOpenWhatsApp();
             }
         });
 
         root.addView(title);
         root.addView(statusText);
-        root.addView(shareButton);
+        root.addView(openButton);
         setContentView(root);
     }
 
@@ -88,24 +93,24 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void downloadAndShare() {
-        shareButton.setEnabled(false);
-        setStatus("Poster download ho raha hai...");
+    private void downloadSaveAndOpenWhatsApp() {
+        openButton.setEnabled(false);
+        setStatus("Latest poster download ho raha hai...");
 
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    File output = new File(getCacheDir(), "metasolw_status_today.png");
-                    downloadFile(POSTER_URL + "?cache=" + System.currentTimeMillis(), output);
-                    setStatus("Poster ready. WhatsApp Status open ho raha hai...");
-                    shareToWhatsAppStatus(output);
+                    byte[] posterBytes = downloadBytes(POSTER_URL + "?cache=" + System.currentTimeMillis());
+                    savePosterToGallery(posterBytes);
+                    setStatus("Poster Gallery me save ho gaya. WhatsApp Business open ho raha hai...");
+                    openFirstWhatsAppBusiness();
                 } catch (Exception e) {
                     setStatus("Error: " + e.getMessage());
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            shareButton.setEnabled(true);
+                            openButton.setEnabled(true);
                         }
                     });
                 }
@@ -113,7 +118,7 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private void downloadFile(String link, File output) throws Exception {
+    private byte[] downloadBytes(String link) throws Exception {
         URL url = new URL(link);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setConnectTimeout(20000);
@@ -127,69 +132,83 @@ public class MainActivity extends Activity {
         }
 
         InputStream in = conn.getInputStream();
-        FileOutputStream out = new FileOutputStream(output);
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
-        byte[] buffer = new byte[8192];
+        byte[] data = new byte[8192];
         int read;
-        while ((read = in.read(buffer)) != -1) {
-            out.write(buffer, 0, read);
+        while ((read = in.read(data)) != -1) {
+            buffer.write(data, 0, read);
         }
 
-        out.flush();
-        out.close();
         in.close();
         conn.disconnect();
+
+        return buffer.toByteArray();
     }
 
-    private void shareToWhatsAppStatus(File imageFile) {
-        Uri uri = FileProvider.getUriForFile(
-                this,
-                getPackageName() + ".fileprovider",
-                imageFile
-        );
+    private void savePosterToGallery(byte[] bytes) throws Exception {
+        String fileName = "MetaSolw_Status_" + System.currentTimeMillis() + ".png";
 
-        if (tryShareToStatus(uri, "com.whatsapp.w4b")) {
-            return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+            values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/MetaSolwStatus");
+            values.put(MediaStore.Images.Media.IS_PENDING, 1);
+
+            Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) {
+                throw new Exception("Gallery save failed");
+            }
+
+            OutputStream out = getContentResolver().openOutputStream(uri);
+            if (out == null) {
+                throw new Exception("Gallery output failed");
+            }
+
+            out.write(bytes);
+            out.flush();
+            out.close();
+
+            values.clear();
+            values.put(MediaStore.Images.Media.IS_PENDING, 0);
+            getContentResolver().update(uri, values, null, null);
+        } else {
+            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "MetaSolwStatus");
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+
+            File file = new File(dir, fileName);
+            FileOutputStream out = new FileOutputStream(file);
+            out.write(bytes);
+            out.flush();
+            out.close();
+
+            MediaScannerConnection.scanFile(this, new String[]{file.getAbsolutePath()}, new String[]{"image/png"}, null);
         }
-
-        if (tryShareToStatus(uri, "com.whatsapp")) {
-            return;
-        }
-
-        openAndroidShareSheet(uri);
     }
 
-    private boolean tryShareToStatus(Uri uri, String packageName) {
+    private void openFirstWhatsAppBusiness() {
         try {
-            grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            Intent intent = getPackageManager().getLaunchIntentForPackage("com.whatsapp.w4b");
 
-            Intent intent = new Intent("com.whatsapp.intent.action.SEND_TO_STATUS");
-            intent.setType("image/png");
-            intent.setPackage(packageName);
-            intent.putExtra(Intent.EXTRA_STREAM, uri);
+            if (intent == null) {
+                setStatus("WhatsApp Business app nahi mila.");
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        openButton.setEnabled(true);
+                    }
+                });
+                return;
+            }
 
-            // Direct WhatsApp Status target
-            
-
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            
-
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
             startActivity(intent);
-            return true;
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private void openAndroidShareSheet(Uri uri) {
-        try {
-            Intent send = new Intent(Intent.ACTION_SEND);
-            send.setType("image/png");
-            send.putExtra(Intent.EXTRA_STREAM, uri);
-            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(send, "Share MetaSolw Poster"));
         } catch (Exception e) {
-            setStatus("WhatsApp open nahi hua: " + e.getMessage());
+            setStatus("WhatsApp Business open nahi hua: " + e.getMessage());
         }
     }
 }
