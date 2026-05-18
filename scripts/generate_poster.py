@@ -3,6 +3,7 @@ from datetime import datetime
 import csv
 import os
 import math
+import random
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
@@ -16,290 +17,91 @@ CAPTION_PATH = os.path.join(OUTPUT_DIR, "caption_today.txt")
 
 W, H = 1080, 1920
 
-# ---------------- FONTS ---------------- #
-
-def get_font(size, bold=False):
+def font(size, bold=False):
     paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
         r"C:\Windows\Fonts\arialbd.ttf" if bold else r"C:\Windows\Fonts\arial.ttf",
-        r"C:\Windows\Fonts\calibrib.ttf" if bold else r"C:\Windows\Fonts\calibri.ttf",
         r"C:\Windows\Fonts\segoeuib.ttf" if bold else r"C:\Windows\Fonts\segoeui.ttf",
+        r"C:\Windows\Fonts\calibrib.ttf" if bold else r"C:\Windows\Fonts\calibri.ttf",
     ]
     for p in paths:
         if os.path.exists(p):
             return ImageFont.truetype(p, size)
     return ImageFont.load_default()
 
-def text_size(draw, text, font):
-    box = draw.textbbox((0, 0), text, font=font)
-    return box[2] - box[0], box[3] - box[1]
+def tsize(draw, text, f):
+    b = draw.textbbox((0,0), str(text), font=f)
+    return b[2]-b[0], b[3]-b[1]
 
-def wrap_text(draw, text, font, max_width):
-    words = str(text).split()
-    lines = []
-    line = ""
-    for word in words:
-        test = f"{line} {word}".strip()
-        if text_size(draw, test, font)[0] <= max_width:
+def wrap_text(draw, text, f, max_w):
+    words = str(text).replace("\n", " ").split()
+    lines, line = [], ""
+    for w in words:
+        test = (line + " " + w).strip()
+        if tsize(draw, test, f)[0] <= max_w:
             line = test
         else:
             if line:
                 lines.append(line)
-            line = word
+            line = w
     if line:
         lines.append(line)
     return lines
 
-def draw_multiline_center(draw, text, box, font, fill, line_gap=12):
+def fit_text(draw, text, max_w, max_h, max_size, min_size, bold=False):
+    for s in range(max_size, min_size - 1, -2):
+        f = font(s, bold)
+        lines = wrap_text(draw, text, f, max_w)
+        gap = max(4, int(s * 0.25))
+        widths = [tsize(draw, ln, f)[0] for ln in lines] or [0]
+        heights = [tsize(draw, ln, f)[1] for ln in lines] or [0]
+        total_h = sum(heights) + gap * (len(lines) - 1)
+        if max(widths) <= max_w and total_h <= max_h:
+            return f, lines, gap
+    f = font(min_size, bold)
+    return f, wrap_text(draw, text, f, max_w), max(4, int(min_size * 0.25))
+
+def draw_centered_text(draw, text, box, max_size, min_size, fill, bold=False):
     x1, y1, x2, y2 = box
-    max_width = x2 - x1
-    lines = wrap_text(draw, text, font, max_width)
-    heights = [text_size(draw, line, font)[1] for line in lines]
-    total_h = sum(heights) + line_gap * (len(lines) - 1)
-    y = y1 + ((y2 - y1) - total_h) // 2
+    f, lines, gap = fit_text(draw, text, x2-x1, y2-y1, max_size, min_size, bold)
+    hs = [tsize(draw, ln, f)[1] for ln in lines]
+    total_h = sum(hs) + gap * (len(lines)-1)
+    y = y1 + ((y2-y1) - total_h) // 2
+    for ln, h in zip(lines, hs):
+        tw, _ = tsize(draw, ln, f)
+        x = x1 + ((x2-x1) - tw) // 2
+        draw.text((x, y), ln, font=f, fill=fill)
+        y += h + gap
 
-    for line, h in zip(lines, heights):
-        tw, _ = text_size(draw, line, font)
-        x = x1 + ((x2 - x1) - tw) // 2
-        draw.text((x, y), line, font=font, fill=fill)
-        y += h + line_gap
+def draw_left_text(draw, text, box, max_size, min_size, fill, bold=False):
+    x1, y1, x2, y2 = box
+    f, lines, gap = fit_text(draw, text, x2-x1, y2-y1, max_size, min_size, bold)
+    hs = [tsize(draw, ln, f)[1] for ln in lines]
+    total_h = sum(hs) + gap * (len(lines)-1)
+    y = y1 + ((y2-y1) - total_h) // 2
+    for ln, h in zip(lines, hs):
+        draw.text((x1, y), ln, font=f, fill=fill)
+        y += h + gap
 
-# ---------------- CONTENT ---------------- #
+def rounded_card(img, box, radius, fill, outline=None, width=2, shadow=True):
+    x1, y1, x2, y2 = box
+    if shadow:
+        sh = Image.new("RGBA", (W, H), (0,0,0,0))
+        sd = ImageDraw.Draw(sh)
+        sd.rounded_rectangle((x1+10, y1+16, x2+10, y2+16), radius=radius, fill=(0,0,0,95))
+        sh = sh.filter(ImageFilter.GaussianBlur(18))
+        img.alpha_composite(sh)
 
-def load_content():
-    fallback = {
-        "category": "Insurance",
-        "text": "Vehicle Insurance direct company se renew karwayein",
-        "cta": "No Agent • No Commission"
-    }
+    layer = Image.new("RGBA", (W, H), (0,0,0,0))
+    ld = ImageDraw.Draw(layer)
+    ld.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
+    img.alpha_composite(layer)
 
-    if not os.path.exists(CONTENT_FILE):
-        return fallback
-
-    rows = []
-    with open(CONTENT_FILE, "r", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row.get("text"):
-                rows.append(row)
-
-    if not rows:
-        return fallback
-
-    day = datetime.now().timetuple().tm_yday
-    row = rows[day % len(rows)]
-
-    return {
-        "category": row.get("category", "Insurance").strip() or "Insurance",
-        "text": row.get("text", "Vehicle Insurance direct company se renew karwayein").strip() or "Vehicle Insurance direct company se renew karwayein",
-        "cta": row.get("cta", "No Agent • No Commission").strip() or "No Agent • No Commission"
-    }
-
-def load_festival():
-    today = datetime.now()
-    yyyy_mm_dd = today.strftime("%Y-%m-%d")
-    mm_dd = today.strftime("%m-%d")
-
-    if not os.path.exists(FESTIVAL_FILE):
-        return None
-
-    with open(FESTIVAL_FILE, "r", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            key = (row.get("date_key") or "").strip()
-            if key == yyyy_mm_dd or key == mm_dd:
-                return {
-                    "festival_name": (row.get("festival_name") or "").strip(),
-                    "theme_type": (row.get("theme_type") or "festive").strip().lower(),
-                    "greeting_line": (row.get("greeting_line") or "").strip()
-                }
-    return None
-
-# ---------------- STYLES ---------------- #
-
-NORMAL_STYLES = [
-    {
-        "name": "Luxury Dark Corporate",
-        "bg_top": (5, 18, 37),
-        "bg_mid": (9, 40, 75),
-        "bg_bottom": (3, 15, 30),
-        "gold": (214, 168, 79),
-        "gold_light": (255, 228, 150),
-        "white": (255, 255, 255),
-        "soft": (220, 232, 247),
-        "cyan": (112, 220, 255),
-        "navy": (5, 20, 38),
-        "accent1": (40, 140, 255, 40),
-        "accent2": (214, 168, 79, 45),
-        "main_card": (8, 30, 58, 238),
-        "footer_card": (4, 18, 36, 245),
-        "cta_fill": (214, 168, 79, 255),
-        "cat_fill": (214, 168, 79, 255),
-        "card_outline": (106, 216, 255, 120),
-        "trust_fill": (7, 29, 57, 235),
-        "text_dark": (5, 20, 38)
-    },
-    {
-        "name": "Clean White Blue",
-        "bg_top": (245, 249, 255),
-        "bg_mid": (226, 238, 252),
-        "bg_bottom": (245, 249, 255),
-        "gold": (26, 93, 184),
-        "gold_light": (20, 82, 160),
-        "white": (17, 44, 86),
-        "soft": (32, 70, 120),
-        "cyan": (0, 114, 220),
-        "navy": (255, 255, 255),
-        "accent1": (0, 100, 220, 35),
-        "accent2": (0, 145, 255, 28),
-        "main_card": (255, 255, 255, 242),
-        "footer_card": (255, 255, 255, 245),
-        "cta_fill": (20, 82, 160, 255),
-        "cat_fill": (20, 82, 160, 255),
-        "card_outline": (20, 82, 160, 90),
-        "trust_fill": (255, 255, 255, 238),
-        "text_dark": (255, 255, 255)
-    },
-    {
-        "name": "Premium Gold Brand",
-        "bg_top": (24, 14, 6),
-        "bg_mid": (62, 35, 10),
-        "bg_bottom": (21, 12, 5),
-        "gold": (214, 168, 79),
-        "gold_light": (255, 236, 176),
-        "white": (255, 250, 238),
-        "soft": (245, 228, 196),
-        "cyan": (255, 204, 110),
-        "navy": (34, 20, 8),
-        "accent1": (255, 190, 70, 40),
-        "accent2": (214, 168, 79, 55),
-        "main_card": (58, 33, 11, 236),
-        "footer_card": (42, 24, 8, 245),
-        "cta_fill": (214, 168, 79, 255),
-        "cat_fill": (214, 168, 79, 255),
-        "card_outline": (255, 221, 154, 100),
-        "trust_fill": (50, 30, 10, 235),
-        "text_dark": (34, 20, 8)
-    },
-    {
-        "name": "Bold Modern Sales",
-        "bg_top": (11, 17, 38),
-        "bg_mid": (30, 58, 112),
-        "bg_bottom": (10, 17, 36),
-        "gold": (255, 98, 0),
-        "gold_light": (255, 180, 110),
-        "white": (255, 255, 255),
-        "soft": (218, 228, 248),
-        "cyan": (110, 220, 255),
-        "navy": (18, 26, 46),
-        "accent1": (255, 98, 0, 40),
-        "accent2": (0, 180, 255, 45),
-        "main_card": (14, 28, 60, 236),
-        "footer_card": (9, 20, 46, 245),
-        "cta_fill": (255, 98, 0, 255),
-        "cat_fill": (255, 98, 0, 255),
-        "card_outline": (110, 220, 255, 100),
-        "trust_fill": (13, 27, 58, 235),
-        "text_dark": (255, 255, 255)
-    },
-    {
-        "name": "Minimal Elegant Blue",
-        "bg_top": (232, 241, 250),
-        "bg_mid": (210, 226, 244),
-        "bg_bottom": (232, 241, 250),
-        "gold": (9, 62, 122),
-        "gold_light": (9, 62, 122),
-        "white": (12, 43, 84),
-        "soft": (36, 78, 130),
-        "cyan": (0, 132, 214),
-        "navy": (255, 255, 255),
-        "accent1": (0, 132, 214, 24),
-        "accent2": (9, 62, 122, 24),
-        "main_card": (255, 255, 255, 245),
-        "footer_card": (255, 255, 255, 246),
-        "cta_fill": (9, 62, 122, 255),
-        "cat_fill": (9, 62, 122, 255),
-        "card_outline": (9, 62, 122, 80),
-        "trust_fill": (255, 255, 255, 238),
-        "text_dark": (255, 255, 255)
-    }
-]
-
-FESTIVAL_THEMES = {
-    "patriotic": {
-        "bg_top": (255, 245, 236),
-        "bg_mid": (238, 247, 255),
-        "bg_bottom": (236, 255, 238),
-        "gold": (19, 92, 44),
-        "gold_light": (255, 120, 0),
-        "white": (8, 48, 95),
-        "soft": (9, 88, 42),
-        "cyan": (0, 116, 214),
-        "navy": (255, 255, 255),
-        "accent1": (255, 120, 0, 35),
-        "accent2": (19, 92, 44, 35),
-        "main_card": (255, 255, 255, 240),
-        "footer_card": (255, 255, 255, 246),
-        "cta_fill": (255, 120, 0, 255),
-        "cat_fill": (19, 92, 44, 255),
-        "card_outline": (0, 116, 214, 80),
-        "trust_fill": (255, 255, 255, 238),
-        "text_dark": (255, 255, 255)
-    },
-    "festive": {
-        "bg_top": (52, 15, 8),
-        "bg_mid": (112, 30, 8),
-        "bg_bottom": (44, 13, 8),
-        "gold": (255, 181, 55),
-        "gold_light": (255, 230, 170),
-        "white": (255, 248, 235),
-        "soft": (255, 222, 180),
-        "cyan": (255, 202, 112),
-        "navy": (58, 20, 7),
-        "accent1": (255, 160, 50, 50),
-        "accent2": (255, 220, 120, 35),
-        "main_card": (87, 25, 8, 236),
-        "footer_card": (70, 20, 8, 245),
-        "cta_fill": (255, 181, 55, 255),
-        "cat_fill": (255, 181, 55, 255),
-        "card_outline": (255, 230, 170, 100),
-        "trust_fill": (82, 24, 8, 235),
-        "text_dark": (58, 20, 7)
-    },
-    "celebration": {
-        "bg_top": (17, 28, 65),
-        "bg_mid": (39, 65, 128),
-        "bg_bottom": (15, 24, 56),
-        "gold": (255, 128, 0),
-        "gold_light": (255, 218, 120),
-        "white": (255, 255, 255),
-        "soft": (216, 230, 255),
-        "cyan": (124, 228, 255),
-        "navy": (22, 28, 50),
-        "accent1": (255, 128, 0, 40),
-        "accent2": (124, 228, 255, 40),
-        "main_card": (18, 32, 72, 236),
-        "footer_card": (12, 24, 58, 245),
-        "cta_fill": (255, 128, 0, 255),
-        "cat_fill": (255, 128, 0, 255),
-        "card_outline": (124, 228, 255, 100),
-        "trust_fill": (17, 30, 68, 235),
-        "text_dark": (255, 255, 255)
-    }
-}
-
-def choose_style(festival):
-    if festival:
-        theme = festival.get("theme_type", "festive").lower()
-        return FESTIVAL_THEMES.get(theme, FESTIVAL_THEMES["festive"]), f"Festival Theme - {theme.title()}"
-    idx = datetime.now().timetuple().tm_yday % len(NORMAL_STYLES)
-    style = NORMAL_STYLES[idx]
-    return style, style["name"]
-
-# ---------------- DRAW HELPERS ---------------- #
-
-def make_bg(style):
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 255))
-    px = img.load()
+def gradient_background(style):
+    img = Image.new("RGBA", (W, H), (0,0,0,255))
+    d = ImageDraw.Draw(img)
 
     top = style["bg_top"]
     mid = style["bg_mid"]
@@ -308,255 +110,435 @@ def make_bg(style):
     for y in range(H):
         t = y / H
         if t < 0.55:
-            tt = t / 0.55
-            c = tuple(int(top[i] * (1 - tt) + mid[i] * tt) for i in range(3))
+            p = t / 0.55
+            c = tuple(int(top[i] * (1-p) + mid[i] * p) for i in range(3))
         else:
-            tt = (t - 0.55) / 0.45
-            c = tuple(int(mid[i] * (1 - tt) + bottom[i] * tt) for i in range(3))
-        for x in range(W):
-            px[x, y] = (*c, 255)
+            p = (t - 0.55) / 0.45
+            c = tuple(int(mid[i] * (1-p) + bottom[i] * p) for i in range(3))
+        d.line((0, y, W, y), fill=(*c, 255))
 
-    glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    glow = Image.new("RGBA", (W, H), (0,0,0,0))
     gd = ImageDraw.Draw(glow)
-    gd.ellipse((-250, 100, 500, 850), fill=style["accent1"])
-    gd.ellipse((650, 0, 1350, 700), fill=style["accent2"])
-    gd.ellipse((450, 1200, 1250, 1950), fill=style["accent1"])
+    gd.ellipse((-220, 120, 470, 820), fill=style["glow1"])
+    gd.ellipse((650, -120, 1320, 520), fill=style["glow2"])
+    gd.ellipse((420, 1120, 1220, 1940), fill=style["glow3"])
     glow = glow.filter(ImageFilter.GaussianBlur(85))
     img.alpha_composite(glow)
 
-    # subtle diagonal pattern
-    pattern = Image.new("RGBA", (W, H), (0,0,0,0))
-    pd = ImageDraw.Draw(pattern)
-    for i in range(-H, W, 70):
-        pd.line((i, 0, i + H, H), fill=(255,255,255,12), width=2)
-    pattern = pattern.filter(ImageFilter.GaussianBlur(1))
-    img.alpha_composite(pattern)
+    lines = Image.new("RGBA", (W, H), (0,0,0,0))
+    ld = ImageDraw.Draw(lines)
+    for x in range(-H, W, 70):
+        ld.line((x, 0, x+H, H), fill=(255,255,255,12), width=2)
+    img.alpha_composite(lines)
 
     return img
 
-def shadow_card(img, box, style, radius=38, fill=None, outline=None):
-    x1, y1, x2, y2 = box
+STYLES = [
+    {
+        "name": "Royal Navy Gold",
+        "bg_top": (4, 16, 38),
+        "bg_mid": (10, 39, 84),
+        "bg_bottom": (3, 14, 32),
+        "primary": (217, 170, 67),
+        "primary2": (255, 232, 168),
+        "accent": (96, 204, 255),
+        "white": (255,255,255),
+        "soft": (224,236,249),
+        "dark": (8, 22, 43),
+        "card": (7, 27, 59, 240),
+        "card2": (8, 31, 68, 236),
+        "footer": (5, 20, 42, 245),
+        "glow1": (90, 196, 255, 36),
+        "glow2": (217, 170, 67, 46),
+        "glow3": (42, 122, 224, 34),
+        "skin": (224, 180, 145),
+        "shirt": (244, 248, 255),
+        "suit": (10, 28, 68),
+        "tie": (217, 170, 67),
+        "hair": (25, 17, 10)
+    },
+    {
+        "name": "Modern Orange Blue",
+        "bg_top": (5, 19, 46),
+        "bg_mid": (16, 57, 120),
+        "bg_bottom": (6, 20, 48),
+        "primary": (255, 115, 22),
+        "primary2": (255, 206, 145),
+        "accent": (116, 222, 255),
+        "white": (255,255,255),
+        "soft": (228,236,252),
+        "dark": (255,255,255),
+        "card": (9, 31, 72, 240),
+        "card2": (10, 36, 78, 236),
+        "footer": (7, 24, 58, 245),
+        "glow1": (255, 115, 22, 40),
+        "glow2": (116, 222, 255, 34),
+        "glow3": (255, 115, 22, 30),
+        "skin": (229, 188, 156),
+        "shirt": (250, 251, 255),
+        "suit": (12, 38, 85),
+        "tie": (255, 115, 22),
+        "hair": (28, 18, 12)
+    },
+    {
+        "name": "Executive Black Gold",
+        "bg_top": (15, 12, 9),
+        "bg_mid": (48, 31, 14),
+        "bg_bottom": (12, 9, 8),
+        "primary": (226, 180, 78),
+        "primary2": (255, 235, 182),
+        "accent": (255, 210, 115),
+        "white": (255, 250, 241),
+        "soft": (245, 228, 198),
+        "dark": (31, 19, 9),
+        "card": (45, 30, 15, 240),
+        "card2": (52, 34, 16, 236),
+        "footer": (34, 22, 11, 245),
+        "glow1": (255, 190, 92, 35),
+        "glow2": (226, 180, 78, 45),
+        "glow3": (255, 195, 95, 28),
+        "skin": (220, 175, 142),
+        "shirt": (248, 244, 238),
+        "suit": (33, 23, 14),
+        "tie": (226, 180, 78),
+        "hair": (22, 14, 9)
+    },
+    {
+        "name": "Premium White Blue",
+        "bg_top": (244, 249, 255),
+        "bg_mid": (226, 238, 252),
+        "bg_bottom": (247, 250, 255),
+        "primary": (18, 80, 163),
+        "primary2": (0, 123, 217),
+        "accent": (31, 155, 255),
+        "white": (13, 38, 80),
+        "soft": (52, 84, 125),
+        "dark": (255,255,255),
+        "card": (255,255,255,246),
+        "card2": (255,255,255,240),
+        "footer": (255,255,255,250),
+        "glow1": (0, 118, 210, 28),
+        "glow2": (18, 80, 163, 24),
+        "glow3": (31, 155, 255, 20),
+        "skin": (225, 183, 150),
+        "shirt": (255,255,255),
+        "suit": (18, 80, 163),
+        "tie": (31, 155, 255),
+        "hair": (30, 19, 12)
+    }
+]
 
-    if fill is None:
-        fill = style["main_card"]
-    if outline is None:
-        outline = style["card_outline"]
+FESTIVE_STYLE = {
+    "name": "Festival Corporate",
+    "bg_top": (68, 20, 11),
+    "bg_mid": (118, 36, 14),
+    "bg_bottom": (48, 16, 10),
+    "primary": (255, 188, 66),
+    "primary2": (255, 231, 170),
+    "accent": (255, 214, 120),
+    "white": (255, 248, 232),
+    "soft": (255, 231, 190),
+    "dark": (74, 26, 10),
+    "card": (92, 30, 12, 238),
+    "card2": (82, 25, 11, 234),
+    "footer": (62, 20, 10, 245),
+    "glow1": (255, 186, 62, 48),
+    "glow2": (255, 226, 130, 40),
+    "glow3": (255, 156, 62, 28),
+    "skin": (225, 183, 150),
+    "shirt": (255, 247, 240),
+    "suit": (112, 42, 18),
+    "tie": (255, 188, 66),
+    "hair": (28, 18, 10)
+}
 
-    shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow)
-    sd.rounded_rectangle((x1 + 8, y1 + 12, x2 + 8, y2 + 12), radius=radius, fill=(0, 0, 0, 100))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(18))
-    img.alpha_composite(shadow)
+def load_content():
+    fallback = {
+        "category": "INSURANCE",
+        "text": "Vehicle Insurance direct company se renew karwayein",
+        "cta": "No Agent • No Commission"
+    }
+    if not os.path.exists(CONTENT_FILE):
+        return fallback
 
-    card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    cd = ImageDraw.Draw(card)
-    cd.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=2)
-    img.alpha_composite(card)
+    rows = []
+    with open(CONTENT_FILE, "r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            if r.get("text"):
+                rows.append(r)
+
+    if not rows:
+        return fallback
+
+    idx = datetime.now().timetuple().tm_yday % len(rows)
+    r = rows[idx]
+    return {
+        "category": (r.get("category") or fallback["category"]).strip().upper(),
+        "text": (r.get("text") or fallback["text"]).strip(),
+        "cta": (r.get("cta") or fallback["cta"]).strip()
+    }
+
+def load_festival():
+    today_full = datetime.now().strftime("%Y-%m-%d")
+    today_md = datetime.now().strftime("%m-%d")
+    if not os.path.exists(FESTIVAL_FILE):
+        return None
+
+    with open(FESTIVAL_FILE, "r", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for r in reader:
+            key = (r.get("date_key") or "").strip()
+            if key in [today_full, today_md]:
+                return {
+                    "festival_name": (r.get("festival_name") or "").strip(),
+                    "theme_type": (r.get("theme_type") or "festive").strip().lower(),
+                    "greeting_line": (r.get("greeting_line") or "").strip()
+                }
+    return None
+
+def choose_style(festival):
+    if festival:
+        return FESTIVE_STYLE
+    return STYLES[datetime.now().timetuple().tm_yday % len(STYLES)]
 
 def paste_logo(img, style):
-    draw = ImageDraw.Draw(img)
-    cx = W // 2
-    cy = 178
-
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    cx, cy = 150, 145
+    layer = Image.new("RGBA", (W,H), (0,0,0,0))
     d = ImageDraw.Draw(layer)
-    d.ellipse((cx - 115, cy - 115, cx + 115, cy + 115), fill=(5, 22, 43, 245), outline=(*style["gold"], 255), width=5)
-    d.ellipse((cx - 95, cy - 95, cx + 95, cy + 95), outline=(*style["cyan"], 90), width=2)
+    d.ellipse((cx-62, cy-62, cx+62, cy+62), fill=(7,25,52,250), outline=(*style["primary"],255), width=4)
     img.alpha_composite(layer)
 
     if os.path.exists(LOGO_PATH):
         try:
             logo = Image.open(LOGO_PATH).convert("RGBA")
-            logo.thumbnail((170, 170))
-            lx = cx - logo.width // 2
-            ly = cy - logo.height // 2
-            img.alpha_composite(logo, (lx, ly))
+            logo.thumbnail((100,100))
+            img.alpha_composite(logo, (cx-logo.width//2, cy-logo.height//2))
             return True
         except Exception:
             pass
 
-    draw.text((cx - 45, cy - 30), "MS", font=get_font(52, True), fill=(*style["gold"], 255))
+    d = ImageDraw.Draw(img)
+    f = font(28, True)
+    tw, th = tsize(d, "MS", f)
+    d.text((cx-tw//2, cy-th//2), "MS", font=f, fill=(*style["primary2"],255))
     return False
 
-def draw_premium_poster():
+def draw_badge(draw, style, x, y, text):
+    fill = (*style["primary"],255)
+    txt = (*style["dark"],255)
+    box = (x, y, x+220, y+52)
+    draw.rounded_rectangle(box, radius=24, fill=fill)
+    draw_centered_text(draw, text, box, 22, 15, txt, True)
+
+def draw_model(img, style, x, y, scale=1.0, female=False):
+    layer = Image.new("RGBA", (W,H), (0,0,0,0))
+    d = ImageDraw.Draw(layer)
+
+    skin = (*style["skin"],255)
+    suit = (*style["suit"],255)
+    shirt = (*style["shirt"],255)
+    tie = (*style["tie"],255)
+    hair = (*style["hair"],255)
+    outline = (255,255,255,35)
+
+    # shadow
+    d.ellipse((x+35, y+450, x+305, y+505), fill=(0,0,0,70))
+
+    # back glow
+    d.ellipse((x-20, y+30, x+330, y+580), fill=(*style["accent"], 28))
+    d.ellipse((x+10, y+65, x+300, y+530), fill=(*style["primary"], 18))
+
+    # head
+    d.ellipse((x+95, y+15, x+225, y+145), fill=skin, outline=outline, width=2)
+
+    # hair
+    if female:
+        d.pieslice((x+82, y+0, x+240, y+165), start=180, end=360, fill=hair)
+        d.rounded_rectangle((x+78, y+44, x+110, y+180), radius=18, fill=hair)
+        d.rounded_rectangle((x+210, y+44, x+242, y+180), radius=18, fill=hair)
+    else:
+        d.pieslice((x+88, y-4, x+232, y+132), start=180, end=360, fill=hair)
+
+    # neck
+    d.rounded_rectangle((x+136, y+128, x+184, y+176), radius=16, fill=skin)
+
+    # torso / suit
+    d.rounded_rectangle((x+68, y+168, x+252, y+420), radius=44, fill=suit, outline=outline, width=2)
+
+    # shoulders
+    d.rounded_rectangle((x+40, y+195, x+282, y+282), radius=38, fill=suit)
+    d.rounded_rectangle((x+20, y+222, x+96, y+370), radius=32, fill=suit)
+    d.rounded_rectangle((x+226, y+222, x+302, y+370), radius=32, fill=suit)
+
+    # shirt
+    d.polygon([(x+118,y+175),(x+202,y+175),(x+178,y+250),(x+142,y+250)], fill=shirt)
+    d.polygon([(x+142,y+250),(x+178,y+250),(x+192,y+404),(x+128,y+404)], fill=shirt)
+
+    # tie
+    d.polygon([(x+149,y+184),(x+171,y+184),(x+183,y+232),(x+159,y+255),(x+137,y+232)], fill=tie)
+    d.polygon([(x+159,y+255),(x+178,y+255),(x+169,y+365),(x+149,y+365),(x+140,y+255)], fill=tie)
+
+    # lapels
+    d.polygon([(x+92,y+184),(x+142,y+184),(x+123,y+258)], fill=(max(style["suit"][0]-12,0), max(style["suit"][1]-12,0), max(style["suit"][2]-12,0),255))
+    d.polygon([(x+228,y+184),(x+178,y+184),(x+197,y+258)], fill=(max(style["suit"][0]-12,0), max(style["suit"][1]-12,0), max(style["suit"][2]-12,0),255))
+
+    # hands
+    d.ellipse((x+10, y+332, x+52, y+374), fill=skin)
+    d.ellipse((x+270, y+332, x+312, y+374), fill=skin)
+
+    # one arm holding folder
+    d.rounded_rectangle((x+220, y+250, x+296, y+370), radius=28, fill=suit)
+    d.rounded_rectangle((x+208, y+286, x+292, y+398), radius=16, fill=(255,255,255,245), outline=(*style["primary"],200), width=3)
+    d.rectangle((x+224, y+308, x+276, y+316), fill=(*style["accent"],180))
+    d.rectangle((x+224, y+330, x+276, y+336), fill=(190,200,220,150))
+    d.rectangle((x+224, y+346, x+266, y+352), fill=(190,200,220,120))
+
+    # body details
+    d.line((x+160, y+262, x+160, y+400), fill=(255,255,255,45), width=2)
+    d.ellipse((x+126, y+292, x+136, y+302), fill=(*style["primary2"],255))
+    d.ellipse((x+126, y+324, x+136, y+334), fill=(*style["primary2"],255))
+
+    # legs
+    d.rounded_rectangle((x+100, y+410, x+145, y+520), radius=18, fill=suit)
+    d.rounded_rectangle((x+175, y+410, x+220, y+520), radius=18, fill=suit)
+    d.rounded_rectangle((x+88, y+506, x+152, y+530), radius=12, fill=(16,16,18,255))
+    d.rounded_rectangle((x+163, y+506, x+227, y+530), radius=12, fill=(16,16,18,255))
+
+    layer = layer.filter(ImageFilter.GaussianBlur(0.15))
+    img.alpha_composite(layer)
+
+def make_poster():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    content = load_content()
+    data = load_content()
     festival = load_festival()
-    style, style_name = choose_style(festival)
+    style = choose_style(festival)
 
-    category = content["category"]
-    headline = content["text"]
-    cta = content["cta"]
-    today = datetime.now().strftime("%d %B %Y")
-
-    festival_name = festival["festival_name"] if festival else ""
-    greeting_line = festival["greeting_line"] if festival else ""
-
-    img = make_bg(style)
+    img = gradient_background(style)
     draw = ImageDraw.Draw(img)
 
-    gold = (*style["gold"], 255)
-    gold_light = (*style["gold_light"], 255)
-    white = (*style["white"], 255)
-    soft = (*style["soft"], 255)
-    cyan = (*style["cyan"], 255)
-    navy = (*style["navy"], 255)
-    text_dark = (*style["text_dark"], 255)
+    primary = (*style["primary"],255)
+    primary2 = (*style["primary2"],255)
+    accent = (*style["accent"],255)
+    white = (*style["white"],255)
+    soft = (*style["soft"],255)
+    dark = (*style["dark"],255)
 
-    # outer premium frame
-    frame = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    # Main frame
+    frame = Image.new("RGBA", (W,H), (0,0,0,0))
     fd = ImageDraw.Draw(frame)
-    fd.rounded_rectangle((40, 40, W - 40, H - 40), radius=52, outline=gold, width=5)
-    fd.rounded_rectangle((58, 58, W - 58, H - 58), radius=42, outline=(*style["cyan"], 90), width=2)
+    fd.rounded_rectangle((36,36,W-36,H-36), radius=54, outline=primary, width=5)
+    fd.rounded_rectangle((54,54,W-54,H-54), radius=42, outline=(*style["accent"],110), width=2)
     img.alpha_composite(frame)
 
     logo_found = paste_logo(img, style)
     draw = ImageDraw.Draw(img)
 
-    # branding
-    draw_multiline_center(draw, "METASOLW SERVICES", (120, 300, W - 120, 370), get_font(54, True), gold_light)
-    draw_multiline_center(draw, "EVERYTHING SOLVED", (180, 370, W - 180, 415), get_font(28, False), soft)
+    # Brand header
+    draw_left_text(draw, "METASOLW SERVICES", (240, 92, 820, 145), 48, 34, primary2, True)
+    draw_left_text(draw, "Everything Solved", (242, 142, 740, 180), 24, 18, soft, False)
 
-    # festival ribbon
+    # Festival chip
+    top_y = 200
     if festival:
-        ribbon = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        rd = ImageDraw.Draw(ribbon)
-        rd.rounded_rectangle((140, 432, W - 140, 522), radius=40, fill=(*style["cta_fill"][:3], 255), outline=(255, 255, 255, 120), width=2)
-        img.alpha_composite(ribbon)
-        draw = ImageDraw.Draw(img)
-        festive_text = f"{greeting_line} • {festival_name}"
-        draw_multiline_center(draw, festive_text, (165, 445, W - 165, 508), get_font(32, True), text_dark)
-        date_top = 542
-    else:
-        date_top = 432
+        rounded_card(img, (70, top_y, W-70, top_y+78), 32, (*style["primary"],255), (255,255,255,150), 2, True)
+        draw_centered_text(draw, festival.get("greeting_line","") + " • " + festival.get("festival_name",""), (100, top_y+10, W-100, top_y+68), 30, 18, dark, True)
+        top_y += 95
 
-    # date pill
-    pill = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    pd = ImageDraw.Draw(pill)
-    pd.rounded_rectangle((315, date_top, 765, date_top + 70), radius=34, fill=(10, 38, 75, 230), outline=(*style["cyan"], 120), width=2)
-    img.alpha_composite(pill)
+    # top date + category
+    rounded_card(img, (72, top_y, 470, top_y+62), 28, style["card2"], (*style["accent"],120), 2, True)
+    draw_centered_text(draw, datetime.now().strftime("%d %B %Y"), (90, top_y+8, 452, top_y+54), 26, 18, white, True)
+
+    rounded_card(img, (72, top_y+78, 470, top_y+158), 36, (*style["primary"],255), (255,255,255,155), 2, True)
+    draw_centered_text(draw, data["category"], (98, top_y+92, 444, top_y+146), 36, 24, dark, True)
+
+    # Right top model area
+    rounded_card(img, (560, top_y-5, 985, top_y+450), 48, style["card"], (*style["accent"],110), 2, True)
+    female = (datetime.now().day % 2 == 0)
+    draw_model(img, style, 620, top_y+10, 1.0, female)
     draw = ImageDraw.Draw(img)
-    draw_multiline_center(draw, today, (330, date_top + 10, 750, date_top + 60), get_font(30, True), (255,255,255,255))
 
-    # category bar
-    cat_y1 = date_top + 125
-    cat_y2 = cat_y1 + 90
-    cat = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    cd = ImageDraw.Draw(cat)
-    cd.rounded_rectangle((140, cat_y1, W - 140, cat_y2), radius=42, fill=(*style["cat_fill"][:3], 255), outline=(255, 238, 165, 180), width=2)
-    img.alpha_composite(cat)
-    draw = ImageDraw.Draw(img)
-    draw_multiline_center(draw, category.upper(), (170, cat_y1 + 10, W - 170, cat_y2 - 10), get_font(42, True), text_dark)
+    # model label
+    draw_badge(draw, style, 660, top_y+368, "DIRECT SERVICE")
+    draw_badge(draw, style, 660, top_y+430, "AGENT FREE")
 
-    # main headline card
-    head_y1 = cat_y2 + 65
-    head_y2 = head_y1 + 395
-    shadow_card(img, (85, head_y1, W - 85, head_y2), style, radius=48, fill=style["main_card"], outline=style["card_outline"])
-    draw = ImageDraw.Draw(img)
-    draw_multiline_center(draw, headline, (145, head_y1 + 70, W - 145, head_y2 - 65), get_font(58, True), white, line_gap=18)
+    # Main content card
+    body_y = top_y + 190
+    rounded_card(img, (72, body_y, 1008, body_y+355), 52, style["card"], (*style["accent"],110), 2, True)
+    draw_left_text(draw, data["text"], (120, body_y+54, 620, body_y+250), 56, 28, white, True)
 
-    # CTA strip
-    cta_y1 = head_y2 + 55
-    cta_y2 = cta_y1 + 113
-    cta_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ctd = ImageDraw.Draw(cta_layer)
-    ctd.rounded_rectangle((130, cta_y1, W - 130, cta_y2), radius=50, fill=(*style["cta_fill"][:3], 255), outline=(255, 237, 160, 200), width=3)
-    img.alpha_composite(cta_layer)
-    draw = ImageDraw.Draw(img)
-    draw_multiline_center(draw, cta, (160, cta_y1 + 15, W - 160, cta_y2 - 15), get_font(38, True), text_dark)
+    # CTA pill
+    rounded_card(img, (118, body_y+250, 610, body_y+320), 34, (*style["primary"],255), (255,255,255,150), 2, True)
+    draw_centered_text(draw, data["cta"], (140, body_y+260, 588, body_y+308), 30, 18, dark, True)
 
-    # trust cards
-    titles = [
+    # Small feature line
+    draw_left_text(draw, "Fast support • Direct company policy • Transparent assistance", (122, body_y+320, 700, body_y+348), 20, 14, soft, False)
+
+    # Mid strip
+    mid_y = body_y + 392
+    rounded_card(img, (72, mid_y, 1008, mid_y+86), 38, (*style["primary"],255), (255,255,255,160), 2, True)
+    draw_centered_text(draw, "PLATFORM BY METASOLW SERVICES", (100, mid_y+14, 980, mid_y+70), 34, 22, dark, True)
+
+    # Feature cards
+    features = [
         ("DIRECT", "Policy issued by Insurance Company"),
         ("ZERO", "No Agent • No Commission"),
-        ("CONTROL", "Policy ownership with Customer")
+        ("CONTROL", "Customer policy ownership")
     ]
 
-    start_y = cta_y2 + 72
-    card_w = 295
-    gap = 28
-    start_x = (W - (card_w * 3 + gap * 2)) // 2
+    fy = mid_y + 130
+    card_w = 280
+    gap = 40
+    start_x = 80
 
-    for i, (t, desc) in enumerate(titles):
+    for i, (title, desc) in enumerate(features):
         x1 = start_x + i * (card_w + gap)
         x2 = x1 + card_w
-        shadow_card(img, (x1, start_y, x2, start_y + 178), style, radius=34, fill=style["trust_fill"], outline=style["card_outline"])
-        draw = ImageDraw.Draw(img)
-        draw_multiline_center(draw, t, (x1 + 10, start_y + 20, x2 - 10, start_y + 72), get_font(31, True), gold_light)
-        draw_multiline_center(draw, desc, (x1 + 16, start_y + 78, x2 - 16, start_y + 156), get_font(21, False), soft, line_gap=6)
+        rounded_card(img, (x1, fy, x2, fy+205), 34, style["card2"], (*style["accent"],110), 2, True)
+        draw_centered_text(draw, title, (x1+20, fy+26, x2-20, fy+72), 28, 18, primary2, True)
+        draw_centered_text(draw, desc, (x1+22, fy+86, x2-22, fy+172), 22, 14, soft, False)
 
-    # platform lines
-    platform_lines = [
-        "Platform by Metasolw Services",
-        "Direct Company Policy • No Brokerage",
-        "India's Direct Insurance Support Platform"
-    ]
-    if festival:
-        platform_lines[0] = f"{festival_name} Special by Metasolw Services"
+    # Bottom body block
+    b2y = fy + 238
+    rounded_card(img, (72, b2y, 1008, b2y+170), 36, style["card2"], (*style["accent"],100), 2, True)
+    draw_centered_text(draw, "Policy issued directly by Insurance Company", (110, b2y+20, 970, b2y+58), 26, 18, white, True)
+    draw_centered_text(draw, "No Agent • No Commission • Direct Company Policy", (110, b2y+60, 970, b2y+96), 26, 18, primary2, True)
+    draw_centered_text(draw, "India's Direct Insurance Support Platform", (110, b2y+104, 970, b2y+140), 24, 16, soft, False)
 
-    yy = start_y + 225
-    for line in platform_lines:
-        draw_multiline_center(draw, line, (100, yy - 15, W - 100, yy + 20), get_font(28, False), soft)
-        yy += 42
-
-    # footer card
-    foot_y1 = H - 200
-    foot_y2 = H - 75
-    shadow_card(img, (80, foot_y1, W - 80, foot_y2), style, radius=36, fill=style["footer_card"], outline=style["card_outline"])
-    draw = ImageDraw.Draw(img)
-    draw_multiline_center(draw, "WhatsApp: 6390063999", (140, foot_y1 + 18, W - 140, foot_y1 + 63), get_font(37, True), white)
-    draw_multiline_center(draw, "www.metasolwservices.in", (140, foot_y1 + 65, W - 140, foot_y2 - 8), get_font(30, False), cyan)
+    # Footer
+    foot_y = H - 190
+    rounded_card(img, (72, foot_y, 1008, H-72), 34, style["footer"], (*style["accent"],110), 2, True)
+    draw_centered_text(draw, "WhatsApp: 6390063999", (100, foot_y+24, 980, foot_y+70), 34, 24, white, True)
+    draw_centered_text(draw, "www.metasolwservices.in", (100, foot_y+76, 980, foot_y+114), 28, 18, accent, False)
 
     img = img.convert("RGB")
     img.save(POSTER_PATH, quality=96)
 
-    if festival:
-        caption = f"""{greeting_line}
+    caption = f"""MetaSolw Services
 
-{festival_name} Special from MetaSolw Services
+{data["category"]}: {data["text"]}
 
-{category}: {headline}
-
-{cta}
+{data["cta"]}
 
 Platform by Metasolw Services
 Policy issued directly by Insurance Company
 No Agent • No Commission • Direct Company Policy
 
-Contact: 6390063999
+WhatsApp: 6390063999
 Website: www.metasolwservices.in
 
-#MetaSolw #EverythingSolved #{festival_name.replace(" ", "")} #{category.replace(" ", "")}
-"""
-    else:
-        caption = f"""MetaSolw Services
-
-{category}: {headline}
-
-{cta}
-
-Platform by Metasolw Services
-Policy issued directly by Insurance Company
-No Agent • No Commission • Direct Company Policy
-
-Contact: 6390063999
-Website: www.metasolwservices.in
-
-#MetaSolw #EverythingSolved #{category.replace(" ", "")}
+#MetaSolw #EverythingSolved #{data["category"].replace(" ", "")}
 """
 
     with open(CAPTION_PATH, "w", encoding="utf-8") as f:
         f.write(caption)
 
-    print("SMART POSTER CREATED SUCCESSFULLY:")
+    print("SMART MODEL POSTER CREATED:")
     print(POSTER_PATH)
-    print("CAPTION CREATED SUCCESSFULLY:")
-    print(CAPTION_PATH)
     print("LOGO FOUND:", logo_found)
-    print("STYLE USED:", style_name)
-    print("FESTIVAL MATCHED:", festival["festival_name"] if festival else "None")
-    print("FESTIVAL FILE:", FESTIVAL_FILE)
+    print("STYLE:", style["name"])
+    print("CAPTION:", CAPTION_PATH)
 
 if __name__ == "__main__":
-    draw_premium_poster()
+    make_poster()
