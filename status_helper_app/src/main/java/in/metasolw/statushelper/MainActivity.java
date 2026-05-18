@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
             public void run() {
                 downloadAndShare();
             }
-        }, 900);
+        }, 700);
     }
 
     private void buildUi() {
@@ -148,32 +148,33 @@ public class MainActivity extends Activity {
                 imageFile
         );
 
-        if (tryShare(uri, "com.whatsapp.w4b")) {
+        if (tryShareToStatus(uri, "com.whatsapp.w4b")) {
             return;
         }
 
-        if (tryShare(uri, "com.whatsapp")) {
+        if (tryShareToStatus(uri, "com.whatsapp")) {
             return;
         }
 
         openAndroidShareSheet(uri);
     }
 
-    private boolean tryShare(Uri uri, String packageName) {
+    private boolean tryShareToStatus(Uri uri, String packageName) {
         try {
-            grantUriPermission(packageName, uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+            grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/status"));
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("image/png");
             intent.setPackage(packageName);
             intent.putExtra(Intent.EXTRA_STREAM, uri);
-            intent.putExtra("foreground_media", uri);
-            intent.putExtra("share_type", "SHARE_TO_STATUS");
-            intent.putExtra("source_app_package_name", getPackageName());
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
 
-            startActivityForResult(intent, 100);
+            // Direct WhatsApp Status target
+            intent.putExtra("jid", "status@broadcast");
+
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            startActivity(intent);
             return true;
         } catch (Exception ignored) {
             return false;
