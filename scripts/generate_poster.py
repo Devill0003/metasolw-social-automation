@@ -11,6 +11,25 @@ CONTENT_FILE = os.path.join(BASE_DIR, "content.csv")
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.png")
 MODEL_PATH = os.path.join(ASSETS_DIR, "model.jpg")
 
+MODEL_FILES = [
+    os.path.join(ASSETS_DIR, "model_1.jpg"),
+    os.path.join(ASSETS_DIR, "model_2.jpg"),
+    os.path.join(ASSETS_DIR, "model_3.jpg"),
+    os.path.join(ASSETS_DIR, "model_4.jpg"),
+    os.path.join(ASSETS_DIR, "model_5.jpg"),
+]
+
+def get_model_path():
+    day = datetime.now().timetuple().tm_yday
+    start = day % len(MODEL_FILES)
+
+    for i in range(len(MODEL_FILES)):
+        candidate = MODEL_FILES[(start + i) % len(MODEL_FILES)]
+        if os.path.exists(candidate):
+            return candidate
+
+    return MODEL_PATH
+
 POSTER_PATH = os.path.join(OUTPUT_DIR, "status_today.png")
 CAPTION_PATH = os.path.join(OUTPUT_DIR, "caption_today.txt")
 
@@ -156,10 +175,11 @@ def paste_logo(img):
     return False
 
 def paste_model(img):
-    if not os.path.exists(MODEL_PATH):
+    model_path = get_model_path()
+    if not os.path.exists(model_path):
         return False
     try:
-        model = Image.open(MODEL_PATH).convert("RGB")
+        model = Image.open(model_path).convert("RGB")
         model = ImageOps.fit(model, (440, 760), method=Image.Resampling.LANCZOS, centering=(0.5, 0.22)).convert("RGBA")
 
         mask = Image.new("L", (440,760), 0)
