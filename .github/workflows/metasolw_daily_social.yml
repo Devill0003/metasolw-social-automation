@@ -1,0 +1,62 @@
+﻿name: MetaSolw Daily Social Automation
+
+on:
+  schedule:
+    # 03:40 UTC = 09:10 AM India time
+    - cron: "40 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: metasolw-daily-social
+  cancel-in-progress: false
+
+jobs:
+  daily-social-post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || pip install pillow requests
+
+      - name: Check required files
+        run: |
+          test -f scripts/generate_poster.py || (echo "generate_poster.py missing" && exit 1)
+          test -f scripts/post_facebook.py || (echo "post_facebook.py missing" && exit 1)
+          test -f scripts/fix_facebook_url.py || (echo "fix_facebook_url.py missing" && exit 1)
+          test -f scripts/post_instagram.py || (echo "post_instagram.py missing" && exit 1)
+          test -f config.json || (echo "config.json missing. Facebook/Instagram token config required." && exit 1)
+
+      - name: Generate daily poster
+        run: python scripts/generate_poster.py
+
+      - name: Update public poster image
+        run: |
+          mkdir -p public
+          cp output/status_today.png public/status_today.png
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/status_today.png output/status_today.png output/caption_today.txt || true
+          git commit -m "Update daily public poster [skip ci]" || echo "No poster changes"
+          git push || true
+
+      - name: Post to Facebook Page
+        run: python scripts/post_facebook.py
+
+      - name: Prepare Facebook image URL for Instagram
+        run: python scripts/fix_facebook_url.py
+
+      - name: Post to Instagram
+        run: python scripts/post_instagram.py
