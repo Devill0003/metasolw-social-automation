@@ -1,9 +1,5 @@
-category,text,cta
-Insurance,Bike aur Car Insurance direct company se renew karwayein,No Agent • No Commission
-RTO,RTO work ke liye direct support available hai,RC Transfer • Fitness • Permit
-Legal,Legal documentation aur claim support ke liye connect karein,Documentation Support
-Tax,Income Tax aur GST related consultation available hai,Professional Guidance
-Investment,Safe financial planning ke liye expert consultation lein,Plan Smart
-Medical,Medical documentation aur support services available hain,Contact MetaSolw
-Academic,Academic documentation aur guidance services available hain,Everything Solved
-Risk Management,Business aur vehicle risk ko timely manage karein,Stay Protected
+﻿category,title,subtitle,cta,point1,point2,point3,bullet1,bullet2,bullet3
+INSURANCE,Vehicle Insurance direct company se renew karwayein,Fast support • Transparent service • Agent free,No Agent • No Commission,Policy issued by Insurance Company,No Agent • No Commission,Policy ownership with Customer,Free document check,Renewal alerts,Claim support guidance
+RTO,RTO work ek hi jagah par professional support ke saath,RC • Permit • Fitness • Transfer support,RTO Support,Direct process guidance,No hidden commission,Customer control,RC related work,Permit / Fitness help,Vehicle document support
+LEGAL,Legal documentation aur claim support ke liye connect karein,Fast support • Direct guidance • Transparent assistance,Documentation Support,Document support,Claim guidance,Transparent assistance,Document check,Claim support guidance,Follow-up support
+TRANSPORT,Transport owners ke liye insurance aur RTO support,Commercial vehicles ke liye direct service platform,Commercial Support,Commercial vehicle support,No agent model,Fleet guidance,Commercial renewal,Permit / document help,Fleet support guidance
