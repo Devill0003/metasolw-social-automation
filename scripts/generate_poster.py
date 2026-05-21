@@ -1,7 +1,6 @@
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from datetime import datetime
-import os
-import csv
+import os, csv
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
@@ -11,18 +10,22 @@ CONTENT_FILE = os.path.join(BASE_DIR, "content.csv")
 POSTER_PATH = os.path.join(OUTPUT_DIR, "status_today.png")
 CAPTION_PATH = os.path.join(OUTPUT_DIR, "caption_today.txt")
 
-W, H = 1080, 1920
+# Instagram / Facebook feed safe size: 4:5
+W, H = 1080, 1350
+
 PHONE = "6390063999"
 WEBSITE = "www.metasolwservices.in"
 
 THEME = {
     "top": (2, 12, 35),
-    "mid": (6, 35, 82),
+    "mid": (5, 34, 82),
     "bottom": (2, 12, 34),
     "gold": (226, 181, 79),
     "gold2": (255, 224, 150),
     "card": (3, 24, 60),
     "card2": (5, 36, 88),
+    "white": (255, 255, 255),
+    "soft": (235, 241, 248),
 }
 
 RESAMPLE = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
@@ -40,53 +43,52 @@ def font(size, bold=False):
     return ImageFont.load_default()
 
 
-def text_size(draw, text, f):
+def ts(draw, text, f):
     b = draw.textbbox((0, 0), str(text), font=f)
     return b[2] - b[0], b[3] - b[1]
 
 
-def wrap_text(draw, text, f, max_w):
-    result = []
+def wrap(draw, text, f, max_w):
+    lines = []
     for part in str(text).split("\n"):
         words = part.split()
-        line = ""
-        for word in words:
-            test = (line + " " + word).strip()
-            if text_size(draw, test, f)[0] <= max_w:
-                line = test
+        current = ""
+        for w in words:
+            test = (current + " " + w).strip()
+            if ts(draw, test, f)[0] <= max_w:
+                current = test
             else:
-                if line:
-                    result.append(line)
-                line = word
-        if line:
-            result.append(line)
-    return result or [""]
+                if current:
+                    lines.append(current)
+                current = w
+        if current:
+            lines.append(current)
+    return lines or [""]
 
 
-def fit_text(draw, text, max_w, max_h, max_size, min_size, bold=True):
+def fit(draw, text, max_w, max_h, max_size, min_size, bold=True):
     for s in range(max_size, min_size - 1, -2):
         f = font(s, bold)
-        lines = wrap_text(draw, text, f, max_w)
-        gap = max(5, int(s * 0.18))
-        hs = [text_size(draw, ln, f)[1] for ln in lines]
-        ws = [text_size(draw, ln, f)[0] for ln in lines] or [0]
+        lines = wrap(draw, text, f, max_w)
+        gap = max(4, int(s * 0.16))
+        hs = [ts(draw, ln, f)[1] for ln in lines]
+        ws = [ts(draw, ln, f)[0] for ln in lines] or [0]
         total = sum(hs) + gap * (len(lines) - 1)
         if max(ws) <= max_w and total <= max_h:
             return f, lines, gap
-
     f = font(min_size, bold)
-    return f, wrap_text(draw, text, f, max_w), 8
+    return f, wrap(draw, text, f, max_w), 6
 
 
 def draw_text(draw, text, box, max_size, min_size, fill, bold=True, align="left"):
     x1, y1, x2, y2 = box
-    f, lines, gap = fit_text(draw, text, x2 - x1, y2 - y1, max_size, min_size, bold)
-    hs = [text_size(draw, ln, f)[1] for ln in lines]
+    f, lines, gap = fit(draw, text, x2 - x1, y2 - y1, max_size, min_size, bold)
+    hs = [ts(draw, ln, f)[1] for ln in lines]
     total = sum(hs) + gap * (len(lines) - 1)
     y = y1 + ((y2 - y1) - total) // 2
 
     for ln, h in zip(lines, hs):
-        tw, _ = text_size(draw, ln, f)
+        tw, _ = ts(draw, ln, f)
         if align == "center":
             x = x1 + ((x2 - x1) - tw) // 2
         elif align == "right":
@@ -103,8 +105,8 @@ def card(img, box, radius, fill, outline=None, width=2, shadow=True):
     if shadow:
         sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         sd = ImageDraw.Draw(sh)
-        sd.rounded_rectangle((x1 + 9, y1 + 13, x2 + 9, y2 + 13), radius=radius, fill=(0, 0, 0, 90))
-        sh = sh.filter(ImageFilter.GaussianBlur(15))
+        sd.rounded_rectangle((x1 + 8, y1 + 10, x2 + 8, y2 + 10), radius=radius, fill=(0, 0, 0, 90))
+        sh = sh.filter(ImageFilter.GaussianBlur(13))
         img.alpha_composite(sh)
 
     layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -113,7 +115,7 @@ def card(img, box, radius, fill, outline=None, width=2, shadow=True):
     img.alpha_composite(layer)
 
 
-def background():
+def bg():
     img = Image.new("RGBA", (W, H), (0, 0, 0, 255))
     d = ImageDraw.Draw(img)
 
@@ -131,22 +133,21 @@ def background():
 
     glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     gd = ImageDraw.Draw(glow)
-    gd.ellipse((700, 120, 1260, 710), fill=(*THEME["gold"], 70))
-    gd.ellipse((-300, 1150, 520, 2050), fill=(0, 170, 170, 26))
-    gd.ellipse((420, 430, 1220, 1250), fill=(40, 80, 180, 40))
-    glow = glow.filter(ImageFilter.GaussianBlur(36))
+    gd.ellipse((690, 80, 1240, 560), fill=(*THEME["gold"], 65))
+    gd.ellipse((-260, 820, 520, 1480), fill=(0, 170, 170, 24))
+    gd.ellipse((420, 300, 1220, 950), fill=(40, 80, 180, 35))
+    glow = glow.filter(ImageFilter.GaussianBlur(34))
     img.alpha_composite(glow)
 
-    pattern = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    pd = ImageDraw.Draw(pattern)
-
-    for i in range(-H, W, 80):
+    pat = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    pd = ImageDraw.Draw(pat)
+    for i in range(-H, W, 78):
         pd.line((i, 0, i + H, H), fill=(255, 255, 255, 12), width=2)
 
-    for r in range(240, 620, 50):
-        pd.arc((790 - r, 250 - r, 790 + r, 250 + r), 300, 60, fill=(*THEME["gold"], 45), width=2)
+    for r in range(230, 560, 48):
+        pd.arc((800 - r, 210 - r, 800 + r, 210 + r), 300, 60, fill=(*THEME["gold"], 42), width=2)
 
-    img.alpha_composite(pattern)
+    img.alpha_composite(pat)
     return img
 
 
@@ -182,25 +183,25 @@ def logo_paths():
 
 def draw_logo(img):
     d = ImageDraw.Draw(img)
-    cx, cy = 122, 110
+    cx, cy = 96, 85
     gold = (*THEME["gold"], 255)
     gold2 = (*THEME["gold2"], 255)
 
-    d.ellipse((cx - 70, cy - 70, cx + 70, cy + 70), fill=(3, 22, 52, 255), outline=gold2, width=5)
-    d.ellipse((cx - 58, cy - 58, cx + 58, cy + 58), outline=gold, width=3)
+    d.ellipse((cx - 56, cy - 56, cx + 56, cy + 56), fill=(3, 22, 52, 255), outline=gold2, width=4)
+    d.ellipse((cx - 47, cy - 47, cx + 47, cy + 47), outline=gold, width=2)
 
     for p in logo_paths():
         if os.path.exists(p):
             try:
                 lg = Image.open(p).convert("RGBA")
-                lg.thumbnail((126, 126), RESAMPLE)
+                lg.thumbnail((96, 96), RESAMPLE)
                 img.alpha_composite(lg, (cx - lg.width // 2, cy - lg.height // 2))
                 return True
             except Exception:
                 pass
 
-    f = font(28, True)
-    tw, th = text_size(d, "MS", f)
+    f = font(24, True)
+    tw, th = ts(d, "MS", f)
     d.text((cx - tw / 2, cy - th / 2), "MS", font=f, fill=gold2)
     return False
 
@@ -210,50 +211,59 @@ def audit_visual(img, box):
     gold = (*THEME["gold"], 255)
     gold2 = (*THEME["gold2"], 255)
 
-    card(img, box, 36, (*THEME["card2"], 235), (*THEME["gold"], 150), 2, True)
+    card(img, box, 28, (*THEME["card2"], 235), (*THEME["gold"], 150), 2, True)
     d = ImageDraw.Draw(img)
 
-    draw_text(d, "AUDIT REPORT", (x1 + 34, y1 + 22, x2 - 34, y1 + 70), 30, 18, gold2, True, "center")
+    draw_text(d, "AUDIT REPORT", (x1 + 24, y1 + 18, x2 - 24, y1 + 54), 24, 15, gold2, True, "center")
 
-    px1, py1 = x1 + 54, y1 + 88
-    px2, py2 = x2 - 54, y2 - 36
+    px1, py1 = x1 + 38, y1 + 68
+    px2, py2 = x2 - 38, y2 - 30
 
-    d.rounded_rectangle((px1, py1, px2, py2), radius=24, fill=(245, 248, 255, 245), outline=gold2, width=3)
-    d.polygon([(px2 - 55, py1), (px2, py1 + 55), (px2, py1)], fill=(214, 224, 238, 255))
-    d.line((px2 - 55, py1, px2, py1 + 55), fill=(175, 187, 203), width=2)
+    d.rounded_rectangle((px1, py1, px2, py2), radius=20, fill=(246, 249, 255, 245), outline=gold2, width=3)
+    d.polygon([(px2 - 48, py1), (px2, py1 + 48), (px2, py1)], fill=(214, 224, 238, 255))
+    d.line((px2 - 48, py1, px2, py1 + 48), fill=(175, 187, 203), width=2)
 
-    d.rounded_rectangle((px1 + 26, py1 + 30, px2 - 26, py1 + 78), radius=14, fill=(5, 31, 73, 255))
-    draw_text(d, "FLEET CHECK", (px1 + 36, py1 + 36, px2 - 36, py1 + 72), 20, 13, gold2, True, "center")
+    d.rounded_rectangle((px1 + 22, py1 + 24, px2 - 22, py1 + 68), radius=12, fill=(5, 31, 73, 255))
+    draw_text(d, "FLEET CHECK", (px1 + 30, py1 + 30, px2 - 30, py1 + 62), 18, 12, gold2, True, "center")
 
     items = ["RC / INSURANCE", "FITNESS STATUS", "PERMIT REVIEW"]
-    yy = py1 + 105
+    yy = py1 + 92
 
     for item in items:
-        d.rounded_rectangle((px1 + 26, yy, px2 - 26, yy + 46), radius=12, fill=(236, 242, 250, 255), outline=(220, 226, 236, 255), width=1)
-        d.ellipse((px1 + 42, yy + 12, px1 + 66, yy + 36), fill=(7, 42, 96, 255))
-        d.line((px1 + 48, yy + 25, px1 + 56, yy + 33, px1 + 69, yy + 15), fill=gold, width=4)
-        draw_text(d, item, (px1 + 80, yy + 7, px2 - 38, yy + 40), 16, 10, (8, 24, 48, 255), True, "left")
-        yy += 58
+        d.rounded_rectangle((px1 + 22, yy, px2 - 22, yy + 42), radius=11, fill=(236, 242, 250, 255), outline=(220, 226, 236, 255), width=1)
+        d.ellipse((px1 + 36, yy + 11, px1 + 60, yy + 35), fill=(7, 42, 96, 255))
+        d.line((px1 + 42, yy + 24, px1 + 50, yy + 32, px1 + 62, yy + 14), fill=gold, width=4)
+        draw_text(d, item, (px1 + 74, yy + 6, px2 - 30, yy + 36), 14, 10, (8, 24, 48, 255), True, "left")
+        yy += 54
 
 
-def feature_icon(draw, cx, cy, kind):
+def service_chip(draw, box, text):
+    x1, y1, x2, y2 = box
+    gold = (*THEME["gold"], 255)
+
+    draw.rounded_rectangle(box, radius=(y2 - y1) // 2, fill=gold, outline=(255, 255, 255, 120), width=2)
+    draw_text(draw, text, (x1 + 25, y1 + 8, x2 - 25, y2 - 8), 30, 18, (8, 24, 48, 255), True, "center")
+
+
+def icon(draw, cx, cy, kind):
     gold2 = (*THEME["gold2"], 255)
-    draw.ellipse((cx - 38, cy - 38, cx + 38, cy + 38), outline=gold2, width=3, fill=(7, 36, 86, 255))
+    draw.ellipse((cx - 34, cy - 34, cx + 34, cy + 34), outline=gold2, width=3, fill=(7, 36, 86, 255))
 
     if kind == "doc":
-        draw.rectangle((cx - 18, cy - 24, cx + 18, cy + 26), outline=gold2, width=3)
-        draw.line((cx - 11, cy + 7, cx - 3, cy + 16, cx + 18, cy - 12), fill=gold2, width=5)
+        draw.rectangle((cx - 15, cy - 22, cx + 15, cy + 22), outline=gold2, width=3)
+        draw.line((cx - 10, cy + 5, cx - 2, cy + 14, cx + 16, cy - 13), fill=gold2, width=4)
     elif kind == "status":
-        draw.line((cx - 22, cy - 8, cx - 8, cy + 8, cx + 25, cy - 24), fill=gold2, width=6)
-        draw.arc((cx - 30, cy - 30, cx + 30, cy + 30), 20, 330, fill=gold2, width=3)
+        draw.line((cx - 20, cy - 5, cx - 7, cy + 10, cx + 22, cy - 20), fill=gold2, width=5)
+        draw.arc((cx - 26, cy - 26, cx + 26, cy + 26), 20, 330, fill=gold2, width=3)
     else:
         f = font(30, True)
-        tw, th = text_size(draw, "!", f)
+        tw, th = ts(draw, "!", f)
         draw.text((cx - tw / 2, cy - th / 2 - 2), "!", font=f, fill=gold2)
 
 
 def make_caption(c):
     tags = "#MetaSolw #MetaSolwServices #EverythingSolved #AuditReport #FleetAudit #VehicleAudit #DocumentCheck #InsuranceCheck #FitnessCertificate #PermitCheck #Kanpur #UttarPradesh #India"
+
     return f"""{c['title']}
 
 ✅ {c['cta']}
@@ -273,51 +283,49 @@ def make_poster():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     c = load_content()
-
     gold = (*THEME["gold"], 255)
     gold2 = (*THEME["gold2"], 255)
     card_col = (*THEME["card"], 238)
 
-    img = background()
+    img = bg()
     d = ImageDraw.Draw(img)
 
-    d.rounded_rectangle((36, 36, W - 36, H - 36), radius=48, outline=(255, 255, 255, 180), width=3)
-    d.rounded_rectangle((54, 54, W - 54, H - 54), radius=38, outline=(*THEME["gold"], 130), width=2)
+    d.rounded_rectangle((34, 34, W - 34, H - 34), radius=44, outline=(255, 255, 255, 180), width=3)
+    d.rounded_rectangle((52, 52, W - 52, H - 52), radius=34, outline=(*THEME["gold"], 130), width=2)
 
     logo_ok = draw_logo(img)
     d = ImageDraw.Draw(img)
 
-    draw_text(d, "METASOLW SERVICES", (220, 54, 920, 132), 64, 42, (255, 255, 255, 255), True, "left")
-    draw_text(d, "Everything Solved • Direct Company Platform", (222, 132, 880, 170), 23, 15, gold2, False, "left")
+    draw_text(d, "METASOLW SERVICES", (180, 45, 930, 105), 52, 34, (255, 255, 255, 255), True, "left")
+    draw_text(d, "Everything Solved • Direct Company Platform", (182, 110, 900, 145), 22, 14, gold2, False, "left")
 
-    d.rounded_rectangle((62, 210, 410, 290), radius=40, fill=gold, outline=(255, 255, 255, 120), width=2)
-    draw_text(d, "AUDIT REPORT", (100, 225, 390, 276), 32, 20, (8, 24, 48, 255), True, "center")
+    service_chip(d, (60, 175, 360, 240), "AUDIT REPORT")
 
-    d.rounded_rectangle((430, 215, 660, 285), radius=35, fill=card_col, outline=gold, width=2)
-    draw_text(d, datetime.now().strftime("%d %b %Y"), (455, 226, 635, 276), 24, 15, (255, 255, 255, 255), True, "center")
+    d.rounded_rectangle((385, 178, 600, 238), radius=30, fill=card_col, outline=gold, width=2)
+    draw_text(d, datetime.now().strftime("%d %b %Y"), (405, 187, 580, 228), 21, 14, (255, 255, 255, 255), True, "center")
 
-    hero = (62, 330, 1018, 800)
-    card(img, hero, 38, card_col, (*THEME["gold"], 145), 2, True)
+    hero_y1, hero_y2 = 275, 600
+    card(img, (60, hero_y1, 1020, hero_y2), 30, card_col, (*THEME["gold"], 145), 2, True)
     d = ImageDraw.Draw(img)
 
-    draw_text(d, c["title"], (102, 370, 560, 560), 56, 34, (255, 255, 255, 255), True, "left")
+    draw_text(d, c["title"], (100, hero_y1 + 34, 585, hero_y1 + 160), 44, 30, (255, 255, 255, 255), True, "left")
 
-    d.rounded_rectangle((102, 590, 520, 670), radius=40, fill=gold, outline=(255, 255, 255, 120), width=2)
-    draw_text(d, c["cta"], (130, 603, 492, 658), 30, 18, (8, 24, 48, 255), True, "center")
+    d.rounded_rectangle((100, hero_y1 + 185, 505, hero_y1 + 255), radius=35, fill=gold, outline=(255, 255, 255, 120), width=2)
+    draw_text(d, c["cta"], (130, hero_y1 + 198, 475, hero_y1 + 245), 27, 17, (8, 24, 48, 255), True, "center")
 
-    draw_text(d, c["subtitle"], (102, 700, 560, 745), 23, 14, (235, 241, 248, 255), False, "left")
+    draw_text(d, c["subtitle"], (100, hero_y1 + 268, 585, hero_y1 + 304), 20, 13, (235, 241, 248, 255), False, "left")
 
-    audit_visual(img, (610, 365, 960, 745))
+    audit_visual(img, (635, 305, 965, 570))
 
-    y = 845
-    card(img, (62, y, 1018, y + 88), 22, gold, (255, 255, 255, 110), 2, True)
+    band_y = 630
+    card(img, (60, band_y, 1020, band_y + 75), 18, gold, (255, 255, 255, 110), 2, True)
     d = ImageDraw.Draw(img)
-    draw_text(d, "PLATFORM BY METASOLW SERVICES", (100, y + 15, 980, y + 73), 38, 24, (8, 23, 48, 255), True, "center")
+    draw_text(d, "PLATFORM BY METASOLW SERVICES", (100, band_y + 12, 980, band_y + 62), 33, 22, (8, 23, 48, 255), True, "center")
 
-    y = 975
-    gap = 28
-    bw = (956 - 2 * gap) // 3
-    xs = [62, 62 + bw + gap, 62 + 2 * (bw + gap)]
+    feature_y = 735
+    gap = 26
+    bw = (960 - 2 * gap) // 3
+    xs = [60, 60 + bw + gap, 60 + 2 * (bw + gap)]
 
     features = [
         ("DOCUMENT", c["point1"], "doc"),
@@ -327,59 +335,44 @@ def make_poster():
 
     for i, (title, body, kind) in enumerate(features):
         x = xs[i]
-        card(img, (x, y, x + bw, y + 210), 28, card_col, (*THEME["gold"], 145), 2, True)
+        card(img, (x, feature_y, x + bw, feature_y + 190), 24, card_col, (*THEME["gold"], 145), 2, True)
         d = ImageDraw.Draw(img)
 
-        cx = x + bw // 2
-        cy = y + 55
-        feature_icon(d, cx, cy, kind)
+        icon(d, x + bw // 2, feature_y + 48, kind)
+        draw_text(d, title, (x + 20, feature_y + 88, x + bw - 20, feature_y + 125), 24, 16, gold2, True, "center")
+        draw_text(d, body, (x + 24, feature_y + 130, x + bw - 24, feature_y + 174), 19, 12, (255, 255, 255, 255), False, "center")
 
-        draw_text(d, title, (x + 20, y + 103, x + bw - 20, y + 140), 26, 18, gold2, True, "center")
-        draw_text(d, body, (x + 24, y + 145, x + bw - 24, y + 195), 21, 13, (255, 255, 255, 255), False, "center")
-
-    y = 1225
-    card(img, (62, y, 1018, y + 330), 30, card_col, (*THEME["gold"], 160), 2, True)
+    assurance_y = 955
+    card(img, (60, assurance_y, 1020, assurance_y + 230), 28, card_col, (*THEME["gold"], 160), 2, True)
     d = ImageDraw.Draw(img)
 
-    sx, sy = 150, y + 76
+    sx, sy = 155, assurance_y + 52
     shield = [
-        (sx, sy), (sx + 72, sy + 24), (sx + 66, sy + 108),
-        (sx, sy + 155), (sx - 66, sy + 108), (sx - 72, sy + 24)
+        (sx, sy), (sx + 60, sy + 20), (sx + 54, sy + 88),
+        (sx, sy + 128), (sx - 54, sy + 88), (sx - 60, sy + 20)
     ]
-
     d.polygon(shield, fill=(*THEME["card2"], 255), outline=gold2)
-    d.line((sx - 35, sy + 83, sx - 10, sy + 112, sx + 45, sy + 47), fill=gold2, width=12)
+    d.line((sx - 28, sy + 68, sx - 8, sy + 92, sx + 38, sy + 38), fill=gold2, width=10)
 
-    draw_text(d, "Audit report with clean document check", (260, y + 50, 970, y + 100), 34, 22, (255, 255, 255, 255), True, "left")
-    draw_text(d, "RC • Insurance • Fitness • Permit • Risk Summary", (260, y + 113, 970, y + 156), 28, 17, gold2, True, "left")
-    d.line((260, y + 172, 970, y + 172), fill=(*THEME["gold"], 180), width=2)
-    draw_text(d, "Professional Audit Support Platform", (260, y + 185, 970, y + 230), 26, 17, (236, 236, 236, 255), False, "left")
+    draw_text(d, "Audit report with clean document check", (255, assurance_y + 35, 960, assurance_y + 75), 30, 19, (255, 255, 255, 255), True, "left")
+    draw_text(d, "RC • Insurance • Fitness • Permit • Risk Summary", (255, assurance_y + 86, 960, assurance_y + 122), 24, 15, gold2, True, "left")
+    d.line((255, assurance_y + 135, 960, assurance_y + 135), fill=(*THEME["gold"], 180), width=2)
+    draw_text(d, "Professional Audit Support Platform", (255, assurance_y + 145, 960, assurance_y + 185), 23, 15, (236, 236, 236, 255), False, "left")
 
-    by = y + 244
-    card(img, (95, by, 985, by + 72), 20, (8, 40, 92, 150), (255, 255, 255, 55), 1, False)
+    by = assurance_y + 168
+    card(img, (255, by, 960, by + 42), 14, (8, 40, 92, 135), (255, 255, 255, 45), 1, False)
+    d = ImageDraw.Draw(img)
+    draw_text(d, "RC / Insurance check  •  Fitness / Permit review  •  Audit report guidance", (275, by + 5, 940, by + 37), 17, 11, (255, 255, 255, 255), False, "center")
+
+    footer_y = 1210
+    card(img, (60, footer_y, 1020, H - 55), 26, (*THEME["card"], 245), (*THEME["gold"], 170), 2, True)
     d = ImageDraw.Draw(img)
 
-    items = [c["bullet1"], c["bullet2"], c["bullet3"]]
-    item_x = [122, 420, 710]
+    d.rounded_rectangle((105, footer_y + 28, 180, footer_y + 103), radius=38, outline=gold2, width=4)
+    draw_text(d, "WA", (118, footer_y + 42, 167, footer_y + 88), 24, 16, gold2, True, "center")
 
-    for idx, text in enumerate(items):
-        x = item_x[idx]
-        d.ellipse((x, by + 16, x + 42, by + 58), outline=gold2, width=3)
-        d.line((x + 11, by + 38, x + 19, by + 47, x + 32, by + 27), fill=gold2, width=4)
-        draw_text(d, text, (x + 55, by + 10, x + 245, by + 62), 19, 12, (255, 255, 255, 255), False, "left")
-
-        if idx < 2:
-            d.line((x + 270, by + 16, x + 270, by + 56), fill=(*THEME["gold"], 120), width=2)
-
-    y = 1665
-    card(img, (62, y, 1018, H - 70), 30, (*THEME["card"], 245), (*THEME["gold"], 170), 2, True)
-    d = ImageDraw.Draw(img)
-
-    d.rounded_rectangle((115, y + 42, 205, y + 132), radius=45, outline=gold2, width=4)
-    draw_text(d, "WA", (128, y + 58, 192, y + 114), 28, 18, gold2, True, "center")
-
-    draw_text(d, f"WhatsApp: {PHONE}", (245, y + 35, 960, y + 95), 44, 28, (255, 255, 255, 255), True, "left")
-    draw_text(d, WEBSITE, (245, y + 105, 960, y + 150), 30, 18, gold2, False, "left")
+    draw_text(d, f"WhatsApp: {PHONE}", (215, footer_y + 25, 965, footer_y + 75), 38, 24, (255, 255, 255, 255), True, "left")
+    draw_text(d, WEBSITE, (215, footer_y + 82, 965, footer_y + 120), 25, 16, gold2, False, "left")
 
     img.convert("RGB").save(POSTER_PATH, quality=96)
 
@@ -390,6 +383,7 @@ def make_poster():
     print(POSTER_PATH)
     print("Caption created successfully:")
     print(CAPTION_PATH)
+    print("Size: 1080x1350 Instagram Feed Safe")
     print("Logo found:", logo_ok)
 
 
